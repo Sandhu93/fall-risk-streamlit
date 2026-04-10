@@ -63,7 +63,10 @@ def get_pose_model_path() -> str:
 def _make_video_landmarker() -> mp.tasks.vision.PoseLandmarker:
     """Create a PoseLandmarker in VIDEO running mode."""
     options = mp.tasks.vision.PoseLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path=get_pose_model_path()),
+        base_options=mp.tasks.BaseOptions(
+            model_asset_path=get_pose_model_path(),
+            delegate=mp.tasks.BaseOptions.Delegate.CPU,
+        ),
         running_mode=mp.tasks.vision.RunningMode.VIDEO,
         min_pose_detection_confidence=0.5,
         min_pose_presence_confidence=0.5,
