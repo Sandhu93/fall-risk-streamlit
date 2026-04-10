@@ -6,9 +6,7 @@ scipy
 tqdm
 torch
 imageio[ffmpeg]
-av
 streamlit
-streamlit-webrtc
 plotly
 Pillow
 ultralytics

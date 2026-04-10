@@ -21,21 +21,11 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import torch
-import av
-from streamlit_webrtc import RTCConfiguration, VideoProcessorBase, webrtc_streamer
 
 from inference import (
     DEFAULT_HIGH_THRESHOLD,
     DEFAULT_MED_THRESHOLD,
-    WINDOW_SIZE,
     FallRiskV3InferenceEngine,
-    FrameProcessorV3,
-    GaitCNNv3Soft,
-    _draw_overlay,
-    detect_pose_yolo,
-    draw_pose_landmarks,
-    get_yolo_model,
-    kp_to_dict,
 )
 
 # ---------------------------------------------------------------------------
@@ -73,10 +63,6 @@ st.set_page_config(
     page_icon=_page_icon,
     layout="wide",
     initial_sidebar_state="collapsed",
-)
-
-RTC_CONFIG = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
 # ---------------------------------------------------------------------------
@@ -311,55 +297,6 @@ def _load_engine() -> FallRiskV3InferenceEngine:
     return FallRiskV3InferenceEngine(model_path=MODEL_PATH)
 
 
-@st.cache_resource
-def _load_model_components():
-    """Load raw model weights for webcam processor (cached separately)."""
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    ckpt = torch.load(MODEL_PATH, map_location=device, weights_only=False)
-    model = GaitCNNv3Soft().to(device)
-    model.load_state_dict(ckpt["model_state"])
-    model.eval()
-    norm_mu = np.array(ckpt["norm_mu"], dtype=np.float32)
-    norm_sd = np.array(ckpt["norm_sd"], dtype=np.float32)
-    return model, device, norm_mu, norm_sd
-
-
-# ---------------------------------------------------------------------------
-# Webcam video processor (streamlit-webrtc)
-# ---------------------------------------------------------------------------
-
-
-class FallRiskWebcamProcessor(VideoProcessorBase):
-    def __init__(self):
-        model, device, norm_mu, norm_sd = _load_model_components()
-        self.fp = FrameProcessorV3(
-            model=model,
-            device=device,
-            norm_mu=norm_mu,
-            norm_sd=norm_sd,
-            high_threshold=st.session_state.get("high_threshold", DEFAULT_HIGH_THRESHOLD),
-            med_threshold=st.session_state.get("med_threshold", DEFAULT_MED_THRESHOLD),
-            aggregation=st.session_state.get("aggregation", "p90"),
-            min_high_windows=st.session_state.get("min_high_windows", 2),
-        )
-        self.show_pose = st.session_state.get("show_pose", True)
-        self._yolo = get_yolo_model()
-
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        img = frame.to_ndarray(format="bgr24")
-        h, w = img.shape[:2]
-        kp = detect_pose_yolo(self._yolo, img)
-        lm_dict = kp_to_dict(kp, w, h) if kp is not None else None
-        if self.show_pose and kp is not None:
-            draw_pose_landmarks(img, kp)
-        self.fp.update(lm_dict)
-        img = _draw_overlay(
-            img, self.fp.current_risk, self.fp.current_probs,
-            self.fp.high_threshold, self.fp.frame_count,
-        )
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
-
-
 # ---------------------------------------------------------------------------
 # Direct inference helper (replaces HTTP calls to FastAPI)
 # ---------------------------------------------------------------------------
@@ -414,7 +351,6 @@ def nav_bar(active: str) -> None:
         ("past", "Past Assessment"),
         ("new", "New Assessment"),
         ("results", "Results"),
-        ("webcam", "Live Camera"),
     ]
     links = ""
     for key, label in pages:
@@ -482,6 +418,8 @@ query_params = st.query_params
 _qpage = query_params.get("page", st.session_state["page"])
 if isinstance(_qpage, list):
     _qpage = _qpage[0]
+if _qpage == "webcam":
+    _qpage = "home"
 st.session_state["page"] = _qpage
 page = st.session_state["page"]
 
@@ -898,7 +836,8 @@ elif page == "nextsteps":
 # LIVE WEBCAM PAGE
 # ===========================================================================
 elif page == "webcam":
-    nav_bar("webcam")
+    st.query_params["page"] = "home"
+    st.rerun()
     st.subheader("Real-time Fall Risk — Live Webcam")
     st.caption(
         "Pose estimation and inference run locally in the browser tab. "

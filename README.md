@@ -189,7 +189,6 @@ Streamlit Cloud detects the push and redeploys within ~1 minute.
 | **Results** | Annotated video playback, risk metrics bar, interactive probability timeline, per-window table, download button |
 | **Past Assessments** | History of all submitted assessments with risk badge, name, age, date |
 | **Next Steps** | Risk-level-specific clinical guidance with image grid; active risk level is highlighted |
-| **Live Camera** | Real-time webcam analysis via streamlit-webrtc (see limitations below) |
 
 ---
 
@@ -208,12 +207,6 @@ Open the sidebar (arrow on the top-left of the app) to adjust:
 ---
 
 ## Known limitations on Streamlit Cloud
-
-### Webcam (Live Camera page)
-The live webcam page uses **WebRTC** (via `streamlit-webrtc`). WebRTC requires a direct peer-to-peer connection between your browser and the server.
-
-- **Local deployment:** Works out of the box.
-- **Streamlit Cloud:** May fail on networks with strict NAT or firewalls because no TURN server is configured. The video upload analysis page is not affected and will work fully on Cloud.
 
 ### Ephemeral filesystem
 Streamlit Cloud does not provide persistent storage. Files written to disk (`assessments_history.json`, `last_analysis.json`) are lost when the app restarts or redeploys. History will start fresh after each restart. To persist data across restarts you would need an external database (e.g. Supabase, Firebase, or a Streamlit-compatible storage backend).
@@ -242,6 +235,3 @@ Expected — the inference pipeline processes video only. Audio is not used or p
 
 **Video plays in VLC but not in the browser**
 Streamlit's `st.video` requires a browser-compatible container. The app encodes output with `libx264` + `yuv420p` which is universally supported. If you supply an input video in a format that OpenCV cannot decode (e.g. some `.mov` encodings), pre-convert it with `ffmpeg -i input.mov -vcodec libx264 output.mp4`.
-
-**`streamlit-webrtc` shows "Please wait..." indefinitely on Cloud**
-This is the TURN server limitation described above. Use the video upload page instead.
