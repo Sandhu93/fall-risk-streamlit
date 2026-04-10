@@ -9,6 +9,7 @@ Key differences from the v6 binary engine:
 """
 from __future__ import annotations
 
+import os
 import time
 from collections import deque
 from pathlib import Path
@@ -20,6 +21,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+os.environ.setdefault("YOLO_CONFIG_DIR", "/tmp/Ultralytics")
+
 from ultralytics import YOLO
 
 # ---------------------------------------------------------------------------
@@ -45,8 +49,12 @@ def get_yolo_model() -> YOLO:
     """Load YOLOv8n-pose once and cache at module level."""
     global _YOLO_MODEL_CACHE
     if _YOLO_MODEL_CACHE is None:
-        weights = str(_YOLO_WEIGHTS_PATH) if _YOLO_WEIGHTS_PATH.exists() else "yolov8n-pose.pt"
-        _YOLO_MODEL_CACHE = YOLO(weights)
+        if not _YOLO_WEIGHTS_PATH.exists():
+            raise FileNotFoundError(
+                f"Missing YOLO pose weights at '{_YOLO_WEIGHTS_PATH}'. "
+                "Add yolov8n-pose.pt to the models directory before running analysis."
+            )
+        _YOLO_MODEL_CACHE = YOLO(str(_YOLO_WEIGHTS_PATH))
     return _YOLO_MODEL_CACHE
 
 
