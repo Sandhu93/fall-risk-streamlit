@@ -4,3 +4,4 @@ libsm6
 libxrender1
 libxext6
 libgles2
+libegl1
