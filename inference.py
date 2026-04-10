@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
 os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
-os.environ["EGL_PLATFORM"] = "surfaceless"
 
 import tempfile
 import time
