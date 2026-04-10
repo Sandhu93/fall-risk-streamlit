@@ -1,13 +1,11 @@
-numpy
-pandas
-matplotlib
-scikit-learn
-scipy
-tqdm
-torch
-imageio[ffmpeg]
-streamlit
-plotly
-Pillow
-ultralytics
-opencv-python-headless
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+numpy<2
+pandas<3
+torch==2.5.1+cpu
+imageio[ffmpeg]<3
+streamlit<1.57
+plotly<6
+Pillow<12
+ultralytics<8.4
+opencv-python-headless<4.11
