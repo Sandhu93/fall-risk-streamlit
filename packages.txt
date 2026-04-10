@@ -3,7 +3,3 @@ libglib2.0-0t64
 libsm6
 libxrender1
 libxext6
-libgles2
-libegl1
-libegl-mesa0
-libgl1-mesa-dri

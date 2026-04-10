@@ -1,7 +1,6 @@
 numpy
 pandas
 matplotlib
-mediapipe>=0.10.30
 scikit-learn
 scipy
 tqdm
@@ -12,3 +11,5 @@ streamlit
 streamlit-webrtc
 plotly
 Pillow
+ultralytics
+opencv-python-headless

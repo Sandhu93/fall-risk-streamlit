@@ -9,81 +9,92 @@ Key differences from the v6 binary engine:
 """
 from __future__ import annotations
 
-import os
-os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
-os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
-
-import tempfile
 import time
-import urllib.request
 from collections import deque
-from pathlib import Path
 from typing import Deque, Dict, List, Optional
 
 import cv2
 import imageio
-import mediapipe as mp
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ultralytics import YOLO
 
 # ---------------------------------------------------------------------------
-# MediaPipe Tasks API setup
+# YOLOv8-pose setup
 # ---------------------------------------------------------------------------
 
-_POSE_MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/"
-    "pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task"
-)
-_POSE_MODEL_CACHE: Optional[Path] = None
+_YOLO_MODEL_CACHE: Optional[YOLO] = None
 
-_POSE_CONNECTIONS = [
-    (0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8),
-    (9, 10), (11, 12), (11, 13), (13, 15), (15, 17), (15, 19), (15, 21),
-    (17, 19), (12, 14), (14, 16), (16, 18), (16, 20), (16, 22), (18, 20),
-    (11, 23), (12, 24), (23, 24), (23, 25), (24, 26), (25, 27), (26, 28),
-    (27, 29), (28, 30), (29, 31), (30, 32), (27, 31), (28, 32),
+# COCO skeleton connections for drawing
+_YOLO_CONNECTIONS = [
+    (0, 5), (0, 6),
+    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
+    (5, 11), (6, 12), (11, 12),
+    (11, 13), (13, 15), (12, 14), (14, 16),
 ]
 
-
-def get_pose_model_path() -> str:
-    """Download the pose landmarker .task file once and cache it."""
-    global _POSE_MODEL_CACHE
-    if _POSE_MODEL_CACHE is not None and _POSE_MODEL_CACHE.exists():
-        return str(_POSE_MODEL_CACHE)
-    model_dir = Path(tempfile.gettempdir()) / "mp_models"
-    model_dir.mkdir(exist_ok=True)
-    model_path = model_dir / "pose_landmarker_full.task"
-    if not model_path.exists():
-        urllib.request.urlretrieve(_POSE_MODEL_URL, str(model_path))
-    _POSE_MODEL_CACHE = model_path
-    return str(model_path)
+# COCO indices of keypoints required for fall-risk features
+_REQUIRED_KP = [0, 5, 6, 11, 12, 13, 14, 15, 16]
 
 
-def _make_image_landmarker() -> mp.tasks.vision.PoseLandmarker:
-    """Create a PoseLandmarker in IMAGE running mode (stateless, CPU-only)."""
-    options = mp.tasks.vision.PoseLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(
-            model_asset_path=get_pose_model_path(),
-            delegate=mp.tasks.BaseOptions.Delegate.CPU,
-        ),
-        running_mode=mp.tasks.vision.RunningMode.IMAGE,
-        min_pose_detection_confidence=0.5,
-        min_pose_presence_confidence=0.5,
-    )
-    return mp.tasks.vision.PoseLandmarker.create_from_options(options)
+def get_yolo_model() -> YOLO:
+    """Load YOLOv8n-pose once and cache at module level."""
+    global _YOLO_MODEL_CACHE
+    if _YOLO_MODEL_CACHE is None:
+        _YOLO_MODEL_CACHE = YOLO("yolov8n-pose.pt")
+    return _YOLO_MODEL_CACHE
 
 
-def draw_pose_landmarks(frame: np.ndarray, landmarks) -> None:
-    """Draw pose skeleton on a BGR frame in-place."""
-    h, w = frame.shape[:2]
-    pts = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
-    for i, j in _POSE_CONNECTIONS:
-        if i < len(pts) and j < len(pts):
+def detect_pose_yolo(model: YOLO, frame: np.ndarray) -> Optional[np.ndarray]:
+    """Run YOLO pose on a BGR frame.
+    Returns (17, 3) array [x_px, y_px, conf] for the first person, or None.
+    """
+    results = model(frame, verbose=False, device="cpu")
+    if not results or results[0].keypoints is None:
+        return None
+    kps = results[0].keypoints.data
+    if len(kps) == 0:
+        return None
+    kp = kps[0].cpu().numpy()  # (17, 3)
+    if any(kp[i, 2] < 0.3 for i in _REQUIRED_KP):
+        return None
+    return kp
+
+
+def lm_to_dict(kp: np.ndarray, frame_w: int, frame_h: int) -> Dict[str, float]:
+    """Convert YOLO COCO keypoint array (17, 3) to normalised landmark dict.
+    COCO→feature mapping: nose=0, l_shoulder=5, r_shoulder=6,
+    l_hip=11, r_hip=12, l_knee=13, r_knee=14, l_ankle=15, r_ankle=16.
+    """
+    def nx(i: int) -> float: return float(kp[i, 0]) / frame_w
+    def ny(i: int) -> float: return float(kp[i, 1]) / frame_h
+    return {
+        "nose_x": nx(0),  "nose_y": ny(0),
+        "ls_x":   nx(5),  "ls_y":   ny(5),
+        "rs_x":   nx(6),  "rs_y":   ny(6),
+        "lh_x":   nx(11), "lh_y":   ny(11),
+        "rh_x":   nx(12), "rh_y":   ny(12),
+        "lk_x":   nx(13), "lk_y":   ny(13),
+        "rk_x":   nx(14), "rk_y":   ny(14),
+        "la_x":   nx(15), "la_y":   ny(15),
+        "ra_x":   nx(16), "ra_y":   ny(16),
+    }
+
+
+def draw_pose_landmarks(frame: np.ndarray, kp: np.ndarray) -> None:
+    """Draw YOLO skeleton on a BGR frame in-place."""
+    pts = []
+    for i in range(17):
+        x, y, conf = kp[i]
+        pts.append((int(x), int(y)) if conf > 0.3 else None)
+    for i, j in _YOLO_CONNECTIONS:
+        if pts[i] and pts[j]:
             cv2.line(frame, pts[i], pts[j], (0, 255, 0), 2, cv2.LINE_AA)
     for pt in pts:
-        cv2.circle(frame, pt, 3, (0, 200, 0), -1, cv2.LINE_AA)
+        if pt:
+            cv2.circle(frame, pt, 3, (0, 200, 0), -1, cv2.LINE_AA)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -396,34 +407,33 @@ class FallRiskV3InferenceEngine:
         detected_frames = 0
         t0 = time.time()
 
+        model = get_yolo_model()
         try:
-            with _make_image_landmarker() as landmarker:
-                while True:
-                    ok, frame = cap.read()
-                    if not ok:
-                        break
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    res = landmarker.detect(mp_image)
-                    lm_dict = lm_to_dict(res.pose_landmarks[0]) if res.pose_landmarks else None
-                    if lm_dict is not None:
-                        detected_frames += 1
-                    lm_buffer.append(lm_dict)
-                    frame_count += 1
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                h, w = frame.shape[:2]
+                kp = detect_pose_yolo(model, frame)
+                lm_dict = lm_to_dict(kp, w, h) if kp is not None else None
+                if lm_dict is not None:
+                    detected_frames += 1
+                lm_buffer.append(lm_dict)
+                frame_count += 1
 
-                    if len(lm_buffer) == self.window_size and (frame_count % self.window_step == 0):
-                        arr = build_window_tensor(list(lm_buffer), self.norm_mu, self.norm_sd)
-                        if arr is not None:
-                            probs = self._predict_window(arr)
-                            high_score_history.append(float(probs[2]))
-                            risk = classify_probs(probs, self.high_threshold, self.med_threshold)
-                            window_results.append({
-                                "frame_idx": frame_count,
-                                "prob_low": round(float(probs[0]), 4),
-                                "prob_medium": round(float(probs[1]), 4),
-                                "prob_high": round(float(probs[2]), 4),
-                                "risk": risk,
-                            })
+                if len(lm_buffer) == self.window_size and (frame_count % self.window_step == 0):
+                    arr = build_window_tensor(list(lm_buffer), self.norm_mu, self.norm_sd)
+                    if arr is not None:
+                        probs = self._predict_window(arr)
+                        high_score_history.append(float(probs[2]))
+                        risk = classify_probs(probs, self.high_threshold, self.med_threshold)
+                        window_results.append({
+                            "frame_idx": frame_count,
+                            "prob_low": round(float(probs[0]), 4),
+                            "prob_medium": round(float(probs[1]), 4),
+                            "prob_high": round(float(probs[2]), 4),
+                            "risk": risk,
+                        })
         finally:
             cap.release()
         elapsed = time.time() - t0
@@ -488,25 +498,24 @@ class FallRiskV3InferenceEngine:
         current_risk = "WARMING UP"
         current_probs: Optional[np.ndarray] = None
 
+        model = get_yolo_model()
         try:
-            with _make_image_landmarker() as landmarker:
-                while True:
-                    ok, frame = cap.read()
-                    if not ok:
-                        break
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    res = landmarker.detect(mp_image)
-                    lm_dict = lm_to_dict(res.pose_landmarks[0]) if res.pose_landmarks else None
-                    if lm_dict is not None:
-                        detected_frames += 1
-                    lm_buffer.append(lm_dict)
-                    frame_count += 1
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                h, w = frame.shape[:2]
+                kp = detect_pose_yolo(model, frame)
+                lm_dict = lm_to_dict(kp, w, h) if kp is not None else None
+                if lm_dict is not None:
+                    detected_frames += 1
+                lm_buffer.append(lm_dict)
+                frame_count += 1
 
-                    if show_pose and res.pose_landmarks:
-                        draw_pose_landmarks(frame, res.pose_landmarks[0])
+                if show_pose and kp is not None:
+                    draw_pose_landmarks(frame, kp)
 
-                    if len(lm_buffer) == self.window_size and (frame_count % self.window_step == 0):
+                if len(lm_buffer) == self.window_size and (frame_count % self.window_step == 0):
                         arr = build_window_tensor(list(lm_buffer), self.norm_mu, self.norm_sd)
                         if arr is not None:
                             probs = self._predict_window(arr)
