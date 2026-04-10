@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import os
 os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
+os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+os.environ["EGL_PLATFORM"] = "surfaceless"
 
 import tempfile
 import time
@@ -60,17 +62,16 @@ def get_pose_model_path() -> str:
     return str(model_path)
 
 
-def _make_video_landmarker() -> mp.tasks.vision.PoseLandmarker:
-    """Create a PoseLandmarker in VIDEO running mode."""
+def _make_image_landmarker() -> mp.tasks.vision.PoseLandmarker:
+    """Create a PoseLandmarker in IMAGE running mode (stateless, CPU-only)."""
     options = mp.tasks.vision.PoseLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(
             model_asset_path=get_pose_model_path(),
             delegate=mp.tasks.BaseOptions.Delegate.CPU,
         ),
-        running_mode=mp.tasks.vision.RunningMode.VIDEO,
+        running_mode=mp.tasks.vision.RunningMode.IMAGE,
         min_pose_detection_confidence=0.5,
         min_pose_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
     )
     return mp.tasks.vision.PoseLandmarker.create_from_options(options)
 
@@ -396,17 +397,15 @@ class FallRiskV3InferenceEngine:
         detected_frames = 0
         t0 = time.time()
 
-        fps_in = cap.get(cv2.CAP_PROP_FPS) or 25.0
         try:
-            with _make_video_landmarker() as landmarker:
+            with _make_image_landmarker() as landmarker:
                 while True:
                     ok, frame = cap.read()
                     if not ok:
                         break
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    timestamp_ms = int(frame_count * 1000.0 / fps_in)
-                    res = landmarker.detect_for_video(mp_image, timestamp_ms)
+                    res = landmarker.detect(mp_image)
                     lm_dict = lm_to_dict(res.pose_landmarks[0]) if res.pose_landmarks else None
                     if lm_dict is not None:
                         detected_frames += 1
@@ -491,15 +490,14 @@ class FallRiskV3InferenceEngine:
         current_probs: Optional[np.ndarray] = None
 
         try:
-            with _make_video_landmarker() as landmarker:
+            with _make_image_landmarker() as landmarker:
                 while True:
                     ok, frame = cap.read()
                     if not ok:
                         break
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    timestamp_ms = int(frame_count * 1000.0 / fps_in)
-                    res = landmarker.detect_for_video(mp_image, timestamp_ms)
+                    res = landmarker.detect(mp_image)
                     lm_dict = lm_to_dict(res.pose_landmarks[0]) if res.pose_landmarks else None
                     if lm_dict is not None:
                         detected_frames += 1
