@@ -13,7 +13,7 @@ import os
 import time
 from collections import deque
 from pathlib import Path
-from typing import Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 import cv2
 import imageio
@@ -22,15 +22,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-os.environ.setdefault("YOLO_CONFIG_DIR", "/tmp/Ultralytics")
-
-from ultralytics import YOLO
-
 # ---------------------------------------------------------------------------
 # YOLOv8-pose setup
 # ---------------------------------------------------------------------------
 
-_YOLO_MODEL_CACHE: Optional[YOLO] = None
+_YOLO_MODEL_CACHE: Optional[Any] = None
 _YOLO_WEIGHTS_PATH = Path(__file__).parent / "models" / "yolov8n-pose.pt"
 
 # COCO skeleton connections for drawing
@@ -45,7 +41,7 @@ _YOLO_CONNECTIONS = [
 _REQUIRED_KP = [0, 5, 6, 11, 12, 13, 14, 15, 16]
 
 
-def get_yolo_model() -> YOLO:
+def get_yolo_model():
     """Load YOLOv8n-pose once and cache at module level."""
     global _YOLO_MODEL_CACHE
     if _YOLO_MODEL_CACHE is None:
@@ -54,11 +50,14 @@ def get_yolo_model() -> YOLO:
                 f"Missing YOLO pose weights at '{_YOLO_WEIGHTS_PATH}'. "
                 "Add yolov8n-pose.pt to the models directory before running analysis."
             )
+        os.environ.setdefault("YOLO_CONFIG_DIR", "/tmp")
+        from ultralytics import YOLO
+
         _YOLO_MODEL_CACHE = YOLO(str(_YOLO_WEIGHTS_PATH))
     return _YOLO_MODEL_CACHE
 
 
-def detect_pose_yolo(model: YOLO, frame: np.ndarray) -> Optional[np.ndarray]:
+def detect_pose_yolo(model: Any, frame: np.ndarray) -> Optional[np.ndarray]:
     """Run YOLO pose on a BGR frame.
     Returns (17, 3) array [x_px, y_px, conf] for the first person, or None.
     """
