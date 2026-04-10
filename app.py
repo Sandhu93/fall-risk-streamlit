@@ -35,6 +35,8 @@ from inference import (
     FrameProcessorV3,
     GaitCNNv3Soft,
     _draw_overlay,
+    draw_pose_landmarks,
+    get_pose_model_path,
     lm_to_dict,
 )
 
@@ -343,20 +345,22 @@ class FallRiskWebcamProcessor(VideoProcessorBase):
             min_high_windows=st.session_state.get("min_high_windows", 2),
         )
         self.show_pose = st.session_state.get("show_pose", True)
-        self._mp_pose = mp.solutions.pose.Pose(
-            static_image_mode=False, model_complexity=1,
-            min_detection_confidence=0.5, min_tracking_confidence=0.5,
+        options = mp.tasks.vision.PoseLandmarkerOptions(
+            base_options=mp.tasks.BaseOptions(model_asset_path=get_pose_model_path()),
+            running_mode=mp.tasks.vision.RunningMode.IMAGE,
+            min_pose_detection_confidence=0.5,
+            min_pose_presence_confidence=0.5,
         )
-        self._mp_draw = mp.solutions.drawing_utils
-        self._mp_pose_mod = mp.solutions.pose
+        self._landmarker = mp.tasks.vision.PoseLandmarker.create_from_options(options)
 
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         img = frame.to_ndarray(format="bgr24")
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        result = self._mp_pose.process(rgb)
-        lm_dict = lm_to_dict(result.pose_landmarks.landmark) if result.pose_landmarks else None
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = self._landmarker.detect(mp_image)
+        lm_dict = lm_to_dict(result.pose_landmarks[0]) if result.pose_landmarks else None
         if self.show_pose and result.pose_landmarks:
-            self._mp_draw.draw_landmarks(img, result.pose_landmarks, self._mp_pose_mod.POSE_CONNECTIONS)
+            draw_pose_landmarks(img, result.pose_landmarks[0])
         self.fp.update(lm_dict)
         img = _draw_overlay(
             img, self.fp.current_risk, self.fp.current_probs,
