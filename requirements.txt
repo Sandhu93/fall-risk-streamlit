@@ -1,0 +1,15 @@
+numpy
+pandas
+matplotlib
+opencv-python-headless
+mediapipe==0.10.14
+scikit-learn
+scipy
+tqdm
+torch
+imageio[ffmpeg]
+av
+streamlit
+streamlit-webrtc
+plotly
+Pillow

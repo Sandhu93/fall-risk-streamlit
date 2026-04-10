@@ -1,0 +1,34 @@
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ── Runtime-generated data (written by the app at runtime) ───────────────────
+assessments_history.json
+last_analysis.json
+
+# ── Streamlit local dev cache ─────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── OS / editor noise ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# ── Temporary / test files ────────────────────────────────────────────────────
+*.tmp
+*.log
+tmp/
+temp/
