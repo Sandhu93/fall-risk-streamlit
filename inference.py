@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from pathlib import Path
 from typing import Deque, Dict, List, Optional
 
 import cv2
@@ -26,6 +27,7 @@ from ultralytics import YOLO
 # ---------------------------------------------------------------------------
 
 _YOLO_MODEL_CACHE: Optional[YOLO] = None
+_YOLO_WEIGHTS_PATH = Path(__file__).parent / "models" / "yolov8n-pose.pt"
 
 # COCO skeleton connections for drawing
 _YOLO_CONNECTIONS = [
@@ -43,7 +45,8 @@ def get_yolo_model() -> YOLO:
     """Load YOLOv8n-pose once and cache at module level."""
     global _YOLO_MODEL_CACHE
     if _YOLO_MODEL_CACHE is None:
-        _YOLO_MODEL_CACHE = YOLO("yolov8n-pose.pt")
+        weights = str(_YOLO_WEIGHTS_PATH) if _YOLO_WEIGHTS_PATH.exists() else "yolov8n-pose.pt"
+        _YOLO_MODEL_CACHE = YOLO(weights)
     return _YOLO_MODEL_CACHE
 
 
@@ -63,7 +66,7 @@ def detect_pose_yolo(model: YOLO, frame: np.ndarray) -> Optional[np.ndarray]:
     return kp
 
 
-def lm_to_dict(kp: np.ndarray, frame_w: int, frame_h: int) -> Dict[str, float]:
+def kp_to_dict(kp: np.ndarray, frame_w: int, frame_h: int) -> Dict[str, float]:
     """Convert YOLO COCO keypoint array (17, 3) to normalised landmark dict.
     COCO→feature mapping: nose=0, l_shoulder=5, r_shoulder=6,
     l_hip=11, r_hip=12, l_knee=13, r_knee=14, l_ankle=15, r_ankle=16.
@@ -123,22 +126,6 @@ def angle_at_b(ax: float, ay: float, bx: float, by: float, cx: float, cy: float)
     if denom < 1e-6:
         return 180.0
     return float(np.degrees(np.arccos(np.clip(np.dot(ab, cb) / denom, -1.0, 1.0))))
-
-
-def lm_to_dict(lm) -> Dict[str, float]:
-    return {
-        "nose_x": lm[0].x,  "nose_y": lm[0].y,
-        "ls_x": lm[11].x,   "ls_y": lm[11].y,
-        "rs_x": lm[12].x,   "rs_y": lm[12].y,
-        "lh_x": lm[23].x,   "lh_y": lm[23].y,
-        "rh_x": lm[24].x,   "rh_y": lm[24].y,
-        "lk_x": lm[25].x,   "lk_y": lm[25].y,
-        "rk_x": lm[26].x,   "rk_y": lm[26].y,
-        "la_x": lm[27].x,   "la_y": lm[27].y,
-        "ra_x": lm[28].x,   "ra_y": lm[28].y,
-    }
-
-
 def extract_frame_vec(lm: Optional[Dict[str, float]]) -> Optional[List[float]]:
     if lm is None:
         return None
@@ -415,7 +402,7 @@ class FallRiskV3InferenceEngine:
                     break
                 h, w = frame.shape[:2]
                 kp = detect_pose_yolo(model, frame)
-                lm_dict = lm_to_dict(kp, w, h) if kp is not None else None
+                lm_dict = kp_to_dict(kp, w, h) if kp is not None else None
                 if lm_dict is not None:
                     detected_frames += 1
                 lm_buffer.append(lm_dict)
@@ -506,7 +493,7 @@ class FallRiskV3InferenceEngine:
                     break
                 h, w = frame.shape[:2]
                 kp = detect_pose_yolo(model, frame)
-                lm_dict = lm_to_dict(kp, w, h) if kp is not None else None
+                lm_dict = kp_to_dict(kp, w, h) if kp is not None else None
                 if lm_dict is not None:
                     detected_frames += 1
                 lm_buffer.append(lm_dict)
@@ -516,21 +503,21 @@ class FallRiskV3InferenceEngine:
                     draw_pose_landmarks(frame, kp)
 
                 if len(lm_buffer) == self.window_size and (frame_count % self.window_step == 0):
-                        arr = build_window_tensor(list(lm_buffer), self.norm_mu, self.norm_sd)
-                        if arr is not None:
-                            probs = self._predict_window(arr)
-                            score_history.append(float(probs[2]))
-                            current_probs = probs
-                            risk = classify_probs(probs, self.high_threshold, self.med_threshold)
-                            window_results.append({
-                                "frame_idx": frame_count,
-                                "prob_low": round(float(probs[0]), 4),
-                                "prob_medium": round(float(probs[1]), 4),
-                                "prob_high": round(float(probs[2]), 4),
-                                "risk": risk,
-                            })
+                    arr = build_window_tensor(list(lm_buffer), self.norm_mu, self.norm_sd)
+                    if arr is not None:
+                        probs = self._predict_window(arr)
+                        score_history.append(float(probs[2]))
+                        current_probs = probs
+                        risk = classify_probs(probs, self.high_threshold, self.med_threshold)
+                        window_results.append({
+                            "frame_idx": frame_count,
+                            "prob_low": round(float(probs[0]), 4),
+                            "prob_medium": round(float(probs[1]), 4),
+                            "prob_high": round(float(probs[2]), 4),
+                            "risk": risk,
+                        })
 
-                    if len(score_history) > 0:
+                    if score_history:
                         agg = self._aggregate_high_scores(list(score_history))
                         high_hits = sum(1 for s in score_history if s >= self.high_threshold)
                         if agg >= self.high_threshold and high_hits >= self.min_high_windows:
@@ -540,8 +527,8 @@ class FallRiskV3InferenceEngine:
                         else:
                             current_risk = "LOW"
 
-                    frame = _draw_overlay(frame, current_risk, current_probs, self.high_threshold, frame_count)
-                    annotated_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                frame = _draw_overlay(frame, current_risk, current_probs, self.high_threshold, frame_count)
+                annotated_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         finally:
             cap.release()
         elapsed = time.time() - t0

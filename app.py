@@ -35,7 +35,7 @@ from inference import (
     detect_pose_yolo,
     draw_pose_landmarks,
     get_yolo_model,
-    lm_to_dict,
+    kp_to_dict,
 )
 
 # ---------------------------------------------------------------------------
@@ -349,7 +349,7 @@ class FallRiskWebcamProcessor(VideoProcessorBase):
         img = frame.to_ndarray(format="bgr24")
         h, w = img.shape[:2]
         kp = detect_pose_yolo(self._yolo, img)
-        lm_dict = lm_to_dict(kp, w, h) if kp is not None else None
+        lm_dict = kp_to_dict(kp, w, h) if kp is not None else None
         if self.show_pose and kp is not None:
             draw_pose_landmarks(img, kp)
         self.fp.update(lm_dict)
