@@ -9,6 +9,9 @@ Key differences from the v6 binary engine:
 """
 from __future__ import annotations
 
+import os
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
+
 import tempfile
 import time
 from collections import deque

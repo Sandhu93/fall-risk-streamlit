@@ -6,6 +6,9 @@ Pages: Home · New Assessment · Results · Past Assessments · Live Camera · N
 """
 from __future__ import annotations
 
+import os
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
+
 import base64
 import io
 import json
